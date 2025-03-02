@@ -1,0 +1,942 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Postman Collection Visualizer</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/2.2.19/tailwind.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.4.13/ace.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.4.13/mode-json.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.4.13/theme-monokai.js"></script>
+    <style>
+        .endpoint-card {
+            transition: all 0.2s ease-in-out;
+        }
+        .endpoint-card:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+        }
+        .method-badge {
+            width: 70px;
+            text-align: center;
+        }
+        .get-method { background-color: #61affe; }
+        .post-method { background-color: #49cc90; }
+        .put-method { background-color: #fca130; }
+        .delete-method { background-color: #f93e3e; }
+        .patch-method { background-color: #50e3c2; }
+        .editor {
+            height: 300px;
+            border-radius: 0.375rem;
+            border: 1px solid #e2e8f0;
+        }
+        .param-badge {
+            font-size: 0.7rem;
+            padding: 0.15rem 0.5rem;
+        }
+        .tab-btn.active {
+            color: #4f46e5;
+            border-bottom: 2px solid #4f46e5;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen">
+    <div class="container mx-auto p-4">
+        <!-- Upload Section -->
+        <div id="upload-section" class="text-center">
+            <h1 class="text-3xl font-bold mb-4">Postman Collection Visualizer</h1>
+            <div id="dropzone" class="border-2 border-dashed border-gray-400 p-8 rounded-lg">
+                <input type="file" id="file-input" class="hidden" accept=".json">
+                <p class="text-gray-600">Drag and drop a Postman collection JSON file here or</p>
+                <button id="upload-btn" class="mt-4 bg-blue-500 text-white px-4 py-2 rounded-lg">Upload File</button>
+            </div>
+        </div>
+
+        <!-- Collection Info -->
+        <div id="collection-info" class="hidden mt-8">
+            <h2 class="text-2xl font-bold">Collection: <span id="collection-name"></span></h2>
+            <p class="text-gray-600" id="collection-description"></p>
+            <p class="text-sm text-gray-500" id="postman-id"></p>
+            <p class="text-sm text-gray-500" id="schema-version"></p>
+        </div>
+
+        <!-- Bulk Actions Panel -->
+        <div id="bulk-actions-panel" class="hidden mt-8">
+            <h3 class="text-xl font-bold">Bulk Actions</h3>
+            <div class="mt-4">
+                <button id="bulk-update-headers" class="bg-green-500 text-white px-4 py-2 rounded-lg">Update Headers</button>
+                <button id="bulk-update-params" class="bg-green-500 text-white px-4 py-2 rounded-lg ml-4">Update Parameters</button>
+            </div>
+        </div>
+
+        <!-- Endpoints Container -->
+        <div id="endpoints-container" class="hidden mt-8"></div>
+
+        <!-- Endpoint Modal -->
+        <div id="endpoint-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4">
+            <div class="bg-white rounded-lg w-full max-w-3xl p-6">
+                <div class="flex justify-between items-center mb-4">
+                    <h3 id="modal-title" class="text-xl font-bold"></h3>
+                    <span id="method-badge" class="method-badge"></span>
+                    <button onclick="closeEndpointModal()" class="text-gray-500 hover:text-gray-700">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700">URL</label>
+                    <input id="url-input" type="text" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm">
+                </div>
+                <div class="mb-4">
+                    <div class="flex space-x-4 border-b">
+                        <button data-tab="headers" class="tab-btn active">Headers</button>
+                        <button data-tab="params" class="tab-btn">Parameters</button>
+                        <button data-tab="body" class="tab-btn">Body</button>
+                        <button data-tab="json" class="tab-btn">Raw JSON</button>
+                    </div>
+                    <div id="headers-tab" class="mt-4">
+                        <div id="headers-list"></div>
+                        <button onclick="addHeaderToEndpoint()" class="mt-2 bg-blue-500 text-white px-4 py-2 rounded-lg">Add Header</button>
+                    </div>
+                    <div id="params-tab" class="hidden mt-4">
+                        <div id="params-list"></div>
+                        <button onclick="addParamToEndpoint()" class="mt-2 bg-blue-500 text-white px-4 py-2 rounded-lg">Add Parameter</button>
+                    </div>
+                    <div id="body-tab" class="hidden mt-4">
+                        <div class="mb-4">
+                            <label class="block text-sm font-medium text-gray-700">Body Mode</label>
+                            <select id="body-mode" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm">
+                                <option value="none">None</option>
+                                <option value="raw">Raw</option>
+                                <option value="formdata">Form Data</option>
+                                <option value="urlencoded">URL Encoded</option>
+                            </select>
+                        </div>
+                        <div id="body-raw-container" class="hidden">
+                            <div class="mb-4">
+                                <label class="block text-sm font-medium text-gray-700">Raw Type</label>
+                                <select id="body-raw-type" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm">
+                                    <option value="json">JSON</option>
+                                    <option value="xml">XML</option>
+                                    <option value="text">Text</option>
+                                </select>
+                            </div>
+                            <div id="body-editor" class="editor"></div>
+                        </div>
+                        <div id="body-formdata-container" class="hidden">
+                            <div id="formdata-list"></div>
+                            <button onclick="addFormDataField()" class="mt-2 bg-blue-500 text-white px-4 py-2 rounded-lg">Add Field</button>
+                        </div>
+                        <div id="body-urlencoded-container" class="hidden">
+                            <div id="urlencoded-list"></div>
+                            <button onclick="addUrlEncodedField()" class="mt-2 bg-blue-500 text-white px-4 py-2 rounded-lg">Add Field</button>
+                        </div>
+                    </div>
+                    <div id="json-tab" class="hidden mt-4">
+                        <div id="json-editor" class="editor"></div>
+                    </div>
+                </div>
+                <div class="mt-6 flex justify-end">
+                    <button onclick="closeEndpointModal()" class="bg-gray-500 text-white px-4 py-2 rounded-lg mr-2">Cancel</button>
+                    <button onclick="updateEndpoint()" class="bg-blue-500 text-white px-4 py-2 rounded-lg">Save</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Save and Export Buttons -->
+        <div class="fixed bottom-4 right-4">
+            <button id="save-btn" class="bg-green-500 text-white px-4 py-2 rounded-lg" disabled>Save Collection</button>
+            <button id="export-btn" class="bg-blue-500 text-white px-4 py-2 rounded-lg ml-4">Export Collection</button>
+        </div>
+    </div>
+
+    <script>
+        // Global state
+        const state = {
+            collection: null,
+            currentEndpoint: null,
+            filename: null,
+            modified: false,
+            bodyEditor: null,
+            jsonEditor: null,
+            activeTab: 'headers'
+        };
+
+        // DOM elements
+        const uploadSection = document.getElementById('upload-section');
+        const bulkActionsPanel = document.getElementById('bulk-actions-panel');
+        const collectionInfo = document.getElementById('collection-info');
+        const endpointsContainer = document.getElementById('endpoints-container');
+        const endpointModal = document.getElementById('endpoint-modal');
+        const dropzone = document.getElementById('dropzone');
+        const fileInput = document.getElementById('file-input');
+        const saveBtn = document.getElementById('save-btn');
+        const exportBtn = document.getElementById('export-btn');
+        const uploadBtn = document.getElementById('upload-btn');
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            // Set up file input event listener
+            fileInput.addEventListener('change', (e) => {
+                const file = e.target.files[0];
+                if (file) {
+                    handleFileUpload(file);
+                }
+            });
+
+            // Set up dropzone event listeners
+            dropzone.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                dropzone.classList.add('border-blue-500');
+            });
+
+            dropzone.addEventListener('dragleave', () => {
+                dropzone.classList.remove('border-blue-500');
+            });
+
+            dropzone.addEventListener('drop', (e) => {
+                e.preventDefault();
+                dropzone.classList.remove('border-blue-500');
+                const file = e.dataTransfer.files[0];
+                if (file) {
+                    handleFileUpload(file);
+                }
+            });
+
+            // Set up upload button event listener
+            uploadBtn.addEventListener('click', () => {
+                fileInput.click();
+            });
+
+            // Set up tab switching
+            document.querySelectorAll('.tab-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    const tab = e.currentTarget.dataset.tab;
+                    state.activeTab = tab;
+
+                    // Hide all tabs
+                    document.querySelectorAll('[id$="-tab"]').forEach(tab => {
+                        tab.classList.add('hidden');
+                    });
+
+                    // Show active tab
+                    document.getElementById(`${tab}-tab`).classList.remove('hidden');
+
+                    // Update active tab button
+                    document.querySelectorAll('.tab-btn').forEach(btn => {
+                        btn.classList.remove('active');
+                    });
+                    e.currentTarget.classList.add('active');
+                });
+            });
+
+            // Set up save button event listener
+            saveBtn.addEventListener('click', saveCollection);
+
+            // Set up export button event listener
+            exportBtn.addEventListener('click', exportCollection);
+        });
+
+        // Handle file upload
+        function handleFileUpload(file) {
+            if (!file.name.endsWith('.json')) {
+                alert('Only JSON files are allowed');
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append('file', file);
+
+            fetch('/api/upload', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    alert(data.error);
+                    return;
+                }
+
+                state.collection = data.collection;
+                state.filename = data.filename;
+                state.modified = false;
+
+                showCollection();
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('An error occurred while uploading the file');
+            });
+        }
+
+        // Show collection data
+        function showCollection() {
+            // Hide upload section
+            uploadSection.classList.add('hidden');
+            
+            // Show collection info, bulk actions, and endpoints container
+            collectionInfo.classList.remove('hidden');
+            bulkActionsPanel.classList.remove('hidden');
+            endpointsContainer.classList.remove('hidden');
+            
+            // Display collection info
+            const info = state.collection.info;
+            document.getElementById('collection-name').textContent = info.name || 'Unnamed Collection';
+            document.getElementById('collection-description').textContent = info.description || '';
+            document.getElementById('postman-id').textContent = `ID: ${info._postman_id || 'N/A'}`;
+            document.getElementById('schema-version').textContent = `Schema: ${info.schema || 'N/A'}`;
+            
+            // Clear endpoints container
+            endpointsContainer.innerHTML = '';
+            
+            // Recursively render items
+            renderItems(state.collection.item);
+        }
+
+        // Recursively render collection items (folders and endpoints)
+        function renderItems(items, parentElement = endpointsContainer, level = 0) {
+            if (!items || !items.length) return;
+            
+            items.forEach((item, index) => {
+                if (item.item && Array.isArray(item.item)) {
+                    // This is a folder
+                    const folderEl = document.createElement('div');
+                    folderEl.className = 'mb-6';
+                    
+                    const folderHeader = document.createElement('div');
+                    folderHeader.className = 'flex items-center mb-3';
+                    folderHeader.innerHTML = `
+                        <i class="fas fa-folder text-yellow-500 mr-2"></i>
+                        <h3 class="text-xl font-semibold text-gray-700">${item.name || 'Unnamed Folder'}</h3>
+                    `;
+                    
+                    const folderContent = document.createElement('div');
+                    folderContent.className = 'pl-6 border-l-2 border-gray-200';
+                    
+                    folderEl.appendChild(folderHeader);
+                    folderEl.appendChild(folderContent);
+                    parentElement.appendChild(folderEl);
+                    
+                    // Recursively render nested items
+                    renderItems(item.item, folderContent, level + 1);
+                } else if (item.request) {
+                    // This is an endpoint
+                    const method = item.request.method || 'GET';
+                    let url = '';
+                    
+                    if (typeof item.request.url === 'string') {
+                        url = item.request.url;
+                    } else if (item.request.url && item.request.url.raw) {
+                        url = item.request.url.raw;
+                    }
+                    
+                    const methodClass = `${method.toLowerCase()}-method`;
+                    
+                    const endpointCard = document.createElement('div');
+                    endpointCard.className = 'endpoint-card bg-white shadow-md rounded-lg p-4 mb-4 cursor-pointer';
+                    endpointCard.dataset.index = index;
+                    endpointCard.dataset.path = level > 0 ? `${parentElement.dataset.path}.${index}` : index.toString();
+                    
+                    // Construct the parameter badges display
+                    let paramBadges = '';
+                    if (item.request.url && item.request.url.query && item.request.url.query.length > 0) {
+                        paramBadges = item.request.url.query.map(param => 
+                            `<span class="param-badge bg-blue-100 text-blue-800 rounded-full px-2 py-1 mr-1">${param.key}</span>`
+                        ).join('');
+                    }
+                    
+                    // Construct the header badges display
+                    let headerBadges = '';
+                    if (item.request.header && item.request.header.length > 0) {
+                        headerBadges = item.request.header.map(header => 
+                            `<span class="param-badge bg-green-100 text-green-800 rounded-full px-2 py-1 mr-1">${header.key}</span>`
+                        ).join('');
+                    }
+                    
+                    endpointCard.innerHTML = `
+                        <div class="flex items-center mb-3">
+                            <span class="method-badge ${methodClass} text-white font-bold py-1 px-2 rounded-md mr-3">${method}</span>
+                            <h4 class="text-lg font-medium text-gray-800">${item.name || 'Unnamed Request'}</h4>
+                        </div>
+                        <div class="text-gray-600 text-sm mb-3 truncate">${url}</div>
+                        <div class="flex flex-wrap gap-1">
+                            ${paramBadges}
+                            ${headerBadges}
+                        </div>
+                    `;
+                    
+                    endpointCard.addEventListener('click', () => openEndpointModal(item, endpointCard.dataset.path));
+                    parentElement.appendChild(endpointCard);
+                }
+            });
+        }
+
+        // Open endpoint modal
+        function openEndpointModal(endpoint, path) {
+            state.currentEndpoint = { endpoint, path };
+            
+            const request = endpoint.request;
+            const method = request.method || 'GET';
+            let url = '';
+            
+            if (typeof request.url === 'string') {
+                url = request.url;
+            } else if (request.url && request.url.raw) {
+                url = request.url.raw;
+            }
+            
+            // Set modal title and URL
+            document.getElementById('modal-title').textContent = endpoint.name || 'Unnamed Request';
+            document.getElementById('method-badge').textContent = method;
+            document.getElementById('method-badge').className = `method-badge ${method.toLowerCase()}-method text-white font-bold py-2 px-3 rounded-l-md`;
+            document.getElementById('url-input').value = url;
+            
+            // Set active tab
+            document.querySelector(`.tab-btn[data-tab="${state.activeTab}"]`).click();
+            
+            // Populate headers
+            const headersList = document.getElementById('headers-list');
+            headersList.innerHTML = '';
+            
+            if (request.header && request.header.length > 0) {
+                request.header.forEach((header, index) => {
+                    const headerRow = document.createElement('div');
+                    headerRow.className = 'flex items-center mb-2';
+                    headerRow.innerHTML = `
+                        <input type="text" value="${header.key}" class="flex-1 mr-2 rounded-l-md border-r-0 border-gray-300 focus:ring-indigo-500 focus:border-indigo-500" placeholder="Key">
+                        <input type="text" value="${header.value}" class="flex-1 rounded-r-md border-gray-300 focus:ring-indigo-500 focus:border-indigo-500" placeholder="Value">
+                        <button class="remove-header ml-2 text-red-500 hover:text-red-700" data-index="${index}">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    `;
+                    headersList.appendChild(headerRow);
+                });
+                
+                // Add event listeners to remove buttons
+                document.querySelectorAll('.remove-header').forEach(btn => {
+                    btn.addEventListener('click', (e) => {
+                        const index = parseInt(e.currentTarget.dataset.index);
+                        headersList.removeChild(e.currentTarget.parentElement);
+                        
+                        // Reassign indexes
+                        headersList.querySelectorAll('.remove-header').forEach((btn, i) => {
+                            btn.dataset.index = i;
+                        });
+                    });
+                });
+            }
+            
+            // Populate parameters
+            const paramsList = document.getElementById('params-list');
+            paramsList.innerHTML = '';
+            
+            if (request.url && request.url.query && request.url.query.length > 0) {
+                request.url.query.forEach((param, index) => {
+                    const paramRow = document.createElement('div');
+                    paramRow.className = 'flex items-center mb-2';
+                    paramRow.innerHTML = `
+                        <input type="text" value="${param.key}" class="flex-1 mr-2 rounded-l-md border-r-0 border-gray-300 focus:ring-indigo-500 focus:border-indigo-500" placeholder="Key">
+                        <input type="text" value="${param.value}" class="flex-1 rounded-r-md border-gray-300 focus:ring-indigo-500 focus:border-indigo-500" placeholder="Value">
+                        <button class="remove-param ml-2 text-red-500 hover:text-red-700" data-index="${index}">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    `;
+                    paramsList.appendChild(paramRow);
+                });
+                
+                // Add event listeners to remove buttons
+                document.querySelectorAll('.remove-param').forEach(btn => {
+                    btn.addEventListener('click', (e) => {
+                        const index = parseInt(e.currentTarget.dataset.index);
+                        paramsList.removeChild(e.currentTarget.parentElement);
+                        
+                        // Reassign indexes
+                        paramsList.querySelectorAll('.remove-param').forEach((btn, i) => {
+                            btn.dataset.index = i;
+                        });
+                    });
+                });
+            }
+            
+            // Populate body
+            const bodyMode = request.body ? request.body.mode : 'none';
+            document.getElementById('body-mode').value = bodyMode || 'none';
+            
+            // Initialize body editor
+            if (!state.bodyEditor) {
+                state.bodyEditor = ace.edit("body-editor");
+                state.bodyEditor.setTheme("ace/theme/monokai");
+                state.bodyEditor.session.setMode("ace/mode/json");
+            }
+            
+            // Initialize JSON editor
+            if (!state.jsonEditor) {
+                state.jsonEditor = ace.edit("json-editor");
+                state.jsonEditor.setTheme("ace/theme/monokai");
+                state.jsonEditor.session.setMode("ace/mode/json");
+                state.jsonEditor.setReadOnly(true);
+            }
+            
+            // Set the raw JSON
+            state.jsonEditor.setValue(JSON.stringify(endpoint, null, 2), -1);
+            
+            // Handle body content based on mode
+            document.getElementById('body-raw-container').classList.add('hidden');
+            document.getElementById('body-formdata-container').classList.add('hidden');
+            document.getElementById('body-urlencoded-container').classList.add('hidden');
+            
+            if (bodyMode === 'raw') {
+                document.getElementById('body-raw-container').classList.remove('hidden');
+                const bodyRawType = request.body && request.body.options && request.body.options.raw && request.body.options.raw.language ? request.body.options.raw.language : 'json';
+                document.getElementById('body-raw-type').value = bodyRawType;
+                state.bodyEditor.setValue(request.body.raw || '', -1);
+                
+                // Set syntax highlighting
+                if (bodyRawType === 'json') {
+                    state.bodyEditor.session.setMode("ace/mode/json");
+                } else if (bodyRawType === 'xml') {
+                    state.bodyEditor.session.setMode("ace/mode/xml");
+                } else {
+                    state.bodyEditor.session.setMode("ace/mode/text");
+                }
+            } else if (bodyMode === 'formdata') {
+                document.getElementById('body-formdata-container').classList.remove('hidden');
+                const formdataList = document.getElementById('formdata-list');
+                formdataList.innerHTML = '';
+                
+                if (request.body && request.body.formdata && request.body.formdata.length > 0) {
+                    request.body.formdata.forEach((item, index) => {
+                        const row = document.createElement('div');
+                        row.className = 'flex items-center mb-2';
+                        
+                        // Different display for file vs text
+                        if (item.type === 'file') {
+                            row.innerHTML = `
+                                <input type="text" value="${item.key}" class="flex-1 mr-2 rounded-l-md border-r-0 border-gray-300 focus:ring-indigo-500 focus:border-indigo-500" placeholder="Key">
+                                <div class="flex-1 flex items-center">
+                                    <span class="bg-gray-200 px-2 py-1 rounded-l">File</span>
+                                    <span class="flex-1 border border-gray-300 px-2 py-1 rounded-r truncate">${item.src || ''}</span>
+                                </div>
+                                <button class="remove-formdata ml-2 text-red-500 hover:text-red-700" data-index="${index}">
+                                    <i class="fas fa-trash"></i>
+                                </button>
+                            `;
+                        } else {
+                            row.innerHTML = `
+                                <input type="text" value="${item.key}" class="flex-1 mr-2 rounded-l-md border-r-0 border-gray-300 focus:ring-indigo-500 focus:border-indigo-500" placeholder="Key">
+                                <input type="text" value="${item.value || ''}" class="flex-1 rounded-r-md border-gray-300 focus:ring-indigo-500 focus:border-indigo-500" placeholder="Value">
+                                <button class="remove-formdata ml-2 text-red-500 hover:text-red-700" data-index="${index}">
+                                    <i class="fas fa-trash"></i>
+                                </button>
+                            `;
+                        }
+                        
+                        formdataList.appendChild(row);
+                    });
+                    
+                    // Add event listeners to remove buttons
+                    document.querySelectorAll('.remove-formdata').forEach(btn => {
+                        btn.addEventListener('click', (e) => {
+                            formdataList.removeChild(e.currentTarget.parentElement);
+                            
+                            // Reassign indexes
+                            formdataList.querySelectorAll('.remove-formdata').forEach((btn, i) => {
+                                btn.dataset.index = i;
+                            });
+                        });
+                    });
+                }
+            } else if (bodyMode === 'urlencoded') {
+                document.getElementById('body-urlencoded-container').classList.remove('hidden');
+                const urlencodedList = document.getElementById('urlencoded-list');
+                urlencodedList.innerHTML = '';
+                
+                if (request.body && request.body.urlencoded && request.body.urlencoded.length > 0) {
+                    request.body.urlencoded.forEach((item, index) => {
+                        const row = document.createElement('div');
+                        row.className = 'flex items-center mb-2';
+                        row.innerHTML = `
+                            <input type="text" value="${item.key}" class="flex-1 mr-2 rounded-l-md border-r-0 border-gray-300 focus:ring-indigo-500 focus:border-indigo-500" placeholder="Key">
+                            <input type="text" value="${item.value || ''}" class="flex-1 rounded-r-md border-gray-300 focus:ring-indigo-500 focus:border-indigo-500" placeholder="Value">
+                            <button class="remove-urlencoded ml-2 text-red-500 hover:text-red-700" data-index="${index}">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        `;
+                        urlencodedList.appendChild(row);
+                    });
+                    
+                    // Add event listeners to remove buttons
+                    document.querySelectorAll('.remove-urlencoded').forEach(btn => {
+                        btn.addEventListener('click', (e) => {
+                            urlencodedList.removeChild(e.currentTarget.parentElement);
+                            
+                            // Reassign indexes
+                            urlencodedList.querySelectorAll('.remove-urlencoded').forEach((btn, i) => {
+                                btn.dataset.index = i;
+                            });
+                        });
+                    });
+                }
+            }
+            
+            // Show modal
+            endpointModal.classList.remove('hidden');
+            
+            // Resize editors
+            if (state.bodyEditor) state.bodyEditor.resize();
+            if (state.jsonEditor) state.jsonEditor.resize();
+        }
+
+        // Close endpoint modal
+        function closeEndpointModal() {
+            endpointModal.classList.add('hidden');
+        }
+
+        // Add a header to the current endpoint
+        function addHeaderToEndpoint() {
+            const headersList = document.getElementById('headers-list');
+            const index = headersList.children.length;
+            
+            const headerRow = document.createElement('div');
+            headerRow.className = 'flex items-center mb-2';
+            headerRow.innerHTML = `
+                <input type="text" class="flex-1 mr-2 rounded-l-md border-r-0 border-gray-300 focus:ring-indigo-500 focus:border-indigo-500" placeholder="Key">
+                <input type="text" class="flex-1 rounded-r-md border-gray-300 focus:ring-indigo-500 focus:border-indigo-500" placeholder="Value">
+                <button class="remove-header ml-2 text-red-500 hover:text-red-700" data-index="${index}">
+                    <i class="fas fa-trash"></i>
+                </button>
+            `;
+            
+            headersList.appendChild(headerRow);
+            
+            // Add event listener to remove button
+            headerRow.querySelector('.remove-header').addEventListener('click', (e) => {
+                headersList.removeChild(headerRow);
+                
+                // Reassign indexes
+                headersList.querySelectorAll('.remove-header').forEach((btn, i) => {
+                    btn.dataset.index = i;
+                });
+            });
+            
+            // Focus on the new header key input
+            headerRow.querySelector('input').focus();
+        }
+
+        // Add a parameter to the current endpoint
+        function addParamToEndpoint() {
+            const paramsList = document.getElementById('params-list');
+            const index = paramsList.children.length;
+            
+            const paramRow = document.createElement('div');
+            paramRow.className = 'flex items-center mb-2';
+            paramRow.innerHTML = `
+                <input type="text" class="flex-1 mr-2 rounded-l-md border-r-0 border-gray-300 focus:ring-indigo-500 focus:border-indigo-500" placeholder="Key">
+                <input type="text" class="flex-1 rounded-r-md border-gray-300 focus:ring-indigo-500 focus:border-indigo-500" placeholder="Value">
+                <button class="remove-param ml-2 text-red-500 hover:text-red-700" data-index="${index}">
+                    <i class="fas fa-trash"></i>
+                </button>
+            `;
+            
+            paramsList.appendChild(paramRow);
+            
+            // Add event listener to remove button
+            paramRow.querySelector('.remove-param').addEventListener('click', (e) => {
+                paramsList.removeChild(paramRow);
+                
+                // Reassign indexes
+                paramsList.querySelectorAll('.remove-param').forEach((btn, i) => {
+                    btn.dataset.index = i;
+                });
+            });
+            
+            // Focus on the new parameter key input
+            paramRow.querySelector('input').focus();
+        }
+
+        // Add a form data field to the current endpoint
+        function addFormDataField() {
+            const formdataList = document.getElementById('formdata-list');
+            const index = formdataList.children.length;
+            
+            const row = document.createElement('div');
+            row.className = 'flex items-center mb-2';
+            row.innerHTML = `
+                <input type="text" class="flex-1 mr-2 rounded-l-md border-r-0 border-gray-300 focus:ring-indigo-500 focus:border-indigo-500" placeholder="Key">
+                <input type="text" class="flex-1 rounded-r-md border-gray-300 focus:ring-indigo-500 focus:border-indigo-500" placeholder="Value">
+                <button class="remove-formdata ml-2 text-red-500 hover:text-red-700" data-index="${index}">
+                    <i class="fas fa-trash"></i>
+                </button>
+            `;
+            
+            formdataList.appendChild(row);
+            
+            // Add event listener to remove button
+            row.querySelector('.remove-formdata').addEventListener('click', (e) => {
+                formdataList.removeChild(row);
+                
+                // Reassign indexes
+                formdataList.querySelectorAll('.remove-formdata').forEach((btn, i) => {
+                    btn.dataset.index = i;
+                });
+            });
+            
+            // Focus on the new key input
+            row.querySelector('input').focus();
+        }
+
+        // Add a URL encoded field to the current endpoint
+        function addUrlEncodedField() {
+            const urlencodedList = document.getElementById('urlencoded-list');
+            const index = urlencodedList.children.length;
+            
+            const row = document.createElement('div');
+            row.className = 'flex items-center mb-2';
+            row.innerHTML = `
+                <input type="text" class="flex-1 mr-2 rounded-l-md border-r-0 border-gray-300 focus:ring-indigo-500 focus:border-indigo-500" placeholder="Key">
+                <input type="text" class="flex-1 rounded-r-md border-gray-300 focus:ring-indigo-500 focus:border-indigo-500" placeholder="Value">
+                <button class="remove-urlencoded ml-2 text-red-500 hover:text-red-700" data-index="${index}">
+                    <i class="fas fa-trash"></i>
+                </button>
+            `;
+            
+            urlencodedList.appendChild(row);
+            
+            // Add event listener to remove button
+            row.querySelector('.remove-urlencoded').addEventListener('click', (e) => {
+                urlencodedList.removeChild(row);
+                
+                // Reassign indexes
+                urlencodedList.querySelectorAll('.remove-urlencoded').forEach((btn, i) => {
+                    btn.dataset.index = i;
+                });
+            });
+            
+            // Focus on the new key input
+            row.querySelector('input').focus();
+        }
+
+        // Update endpoint after modal editing
+        function updateEndpoint() {
+            if (!state.currentEndpoint) return;
+            
+            const { endpoint, path } = state.currentEndpoint;
+            const request = endpoint.request;
+            
+            // Update URL
+            const url = document.getElementById('url-input').value;
+            if (typeof request.url === 'string') {
+                request.url = url;
+            } else if (request.url && request.url.raw) {
+                request.url.raw = url;
+            }
+            
+            // Update headers
+            const headerRows = document.querySelectorAll('#headers-list > div');
+            request.header = Array.from(headerRows).map(row => {
+                const inputs = row.querySelectorAll('input');
+                return {
+                    key: inputs[0].value,
+                    value: inputs[1].value,
+                    type: 'text'
+                };
+            });
+            
+            // Update parameters
+            const paramRows = document.querySelectorAll('#params-list > div');
+            
+            if (!request.url || typeof request.url === 'string') {
+                // Convert string URL to object if needed
+                if (typeof request.url === 'string') {
+                    const urlString = request.url;
+                    const urlParts = urlString.split('?');
+                    const baseUrl = urlParts[0];
+                    
+                    request.url = {
+                        raw: urlString,
+                        protocol: baseUrl.includes('://') ? baseUrl.split('://')[0] : '',
+                        host: baseUrl.includes('://') ? baseUrl.split('://')[1].split('/')[0].split('.') : baseUrl.split('/')[0].split('.'),
+                        path: baseUrl.includes('://') ? baseUrl.split('://')[1].split('/').slice(1) : baseUrl.split('/').slice(1),
+                        query: []
+                    };
+                } else {
+                    request.url = { raw: url, query: [] };
+                }
+            }
+            
+            request.url.query = Array.from(paramRows).map(row => {
+                const inputs = row.querySelectorAll('input');
+                return {
+                    key: inputs[0].value,
+                    value: inputs[1].value
+                };
+            });
+            
+            // Update body
+            const bodyMode = document.getElementById('body-mode').value;
+            
+            if (!request.body) {
+                request.body = { mode: bodyMode };
+            } else {
+                request.body.mode = bodyMode;
+            }
+            
+            if (bodyMode === 'raw') {
+                const rawType = document.getElementById('body-raw-type').value;
+                request.body.raw = state.bodyEditor.getValue();
+                
+                if (!request.body.options) {
+                    request.body.options = { raw: { language: rawType } };
+                } else if (!request.body.options.raw) {
+                    request.body.options.raw = { language: rawType };
+                } else {
+                    request.body.options.raw.language = rawType;
+                }
+            } else if (bodyMode === 'formdata') {
+                const formdataRows = document.querySelectorAll('#formdata-list > div');
+                request.body.formdata = Array.from(formdataRows).map(row => {
+                    const inputs = row.querySelectorAll('input');
+                    return {
+                        key: inputs[0].value,
+                        value: inputs[1].value,
+                        type: 'text'
+                    };
+                });
+            } else if (bodyMode === 'urlencoded') {
+                const urlencodedRows = document.querySelectorAll('#urlencoded-list > div');
+                request.body.urlencoded = Array.from(urlencodedRows).map(row => {
+                    const inputs = row.querySelectorAll('input');
+                    return {
+                        key: inputs[0].value,
+                        value: inputs[1].value
+                    };
+                });
+            }
+            
+            // Update state
+            state.modified = true;
+            
+            // Enable save button
+            saveBtn.disabled = false;
+            
+            // Close modal
+            closeEndpointModal();
+            
+            // Refresh display
+            showCollection();
+        }
+
+        // Save collection to server
+        function saveCollection() {
+            if (!state.collection || !state.filename) return;
+            
+            fetch('/api/update-collection', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    filename: state.filename,
+                    collection: state.collection
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    alert(data.error);
+                    return;
+                }
+                
+                state.modified = false;
+                alert('Collection saved successfully!');
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('An error occurred while saving the collection');
+            });
+        }
+
+        // Export collection as a file
+        function exportCollection() {
+            if (!state.filename) return;
+            
+            window.location.href = `/api/export/${state.filename}`;
+        }
+
+        // Bulk update headers for all endpoints
+        function bulkUpdateHeaders(action, key, value = '') {
+            if (!state.collection || !state.filename) return;
+            
+            fetch('/api/bulk-update', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    filename: state.filename,
+                    updates: {
+                        headers: {
+                            action: action,
+                            key: key,
+                            value: value
+                        }
+                    }
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    alert(data.error);
+                    return;
+                }
+                
+                state.collection = data.collection;
+                state.modified = true;
+                showCollection();
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('An error occurred while updating headers');
+            });
+        }
+
+        // Bulk update query parameters for all endpoints
+        function bulkUpdateParams(action, key, value = '') {
+            if (!state.collection || !state.filename) return;
+            
+            fetch('/api/bulk-update', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    filename: state.filename,
+                    updates: {
+                        query_params: {
+                            action: action,
+                            key: key,
+                            value: value
+                        }
+                    }
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    alert(data.error);
+                    return;
+                }
+                
+                state.collection = data.collection;
+                state.modified = true;
+                showCollection();
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('An error occurred while updating parameters');
+            });
+        }
+    </script>
+</body>
+</html>
